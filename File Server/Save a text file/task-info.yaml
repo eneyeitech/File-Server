@@ -13,190 +13,6 @@ files:
         }
     }
   learner_created: false
-- name: src/server/Executor.java
-  visible: true
-  text: |
-    package server;
-
-    import java.io.File;
-    import java.util.Scanner;
-    import java.util.regex.Matcher;
-    import java.util.regex.Pattern;
-
-    public class Executor {
-        final static String PATH = "C:\\Users\\eneye\\Documents\\Abdulmumin\\files\\";
-        //final static String PATH = "C:\\Users\\eneye\\IdeaProjects\\File Server\\File Server\\task\\src\\server\\";
-        //final static String PATH = "/home/feztix/documents/coding/java/idea_projects/File_Server/File Server/task/src/server/";
-
-        public static boolean checkValidName(String fileName){
-            final String regex = "file(10|[1-9])";
-            final String string = fileName;
-
-            final Pattern pattern = Pattern.compile(regex, Pattern.MULTILINE);
-            final Matcher matcher = pattern.matcher(string);
-
-            // matches return true if all string matches to pattern
-            return matcher.matches();
-        }
-
-        /**
-         *
-         * @param fileName Name of the file to add
-         * @return String, formatted output data
-         */
-        public static String addFile(String fileName){
-            // Check if name of file is valid
-            if (! checkValidName(fileName)){
-                return "Cannot add the file " + fileName;
-            };
-
-    //        // создадим новый файл
-    //        File file = new File(Executor.PATH + fileName);
-    //        if (file.exists()){
-    //            return  "The file " + fileName + " added successfully";
-    //        }
-    //        try
-    //        {
-    //            boolean created = file.createNewFile();
-    //            if(created)
-    //                return "Cannot add the file " + fileName;
-    //        }
-    //        catch(IOException ex){
-    //
-    //            return ex.getMessage();
-    //        }
-
-            try {
-                File file = new File(Executor.PATH + fileName);
-
-                if(file.exists()){
-                    return "Cannot add the file " + fileName;
-                }
-                boolean createdNew = file.createNewFile();
-                if (createdNew) {
-                    return  "The file " + fileName + " added successfully";
-                } else {
-                    return "Cannot add the file " + fileName;
-                }
-            } catch (Exception e) {
-                return e.toString();
-            }
-        }
-
-        /**
-         * Adding files ./files/
-         * @return - String, formatted output data
-         * @param fileName, name of the file we'll get
-         */
-        public static String getFile(String fileName){
-            File file = new File(Executor.PATH + fileName);
-
-            try (Scanner scanner = new Scanner(file)) { // it throws FileNotFoundException
-                // ЧТЕНИЕ ФАЙЛА
-    //            while (scanner.hasNext()) {
-    //                return scanner.nextLine() + " ";
-    //            }
-                return "The file " + fileName + " was sent";
-            } catch (java.io.FileNotFoundException e) {
-                return "The file " + fileName + " not found";
-            }
-        }
-
-        public static String delFile(String fileName){
-            File file = new File(Executor.PATH + fileName);
-
-            if (file.delete()) {
-                return "The file " + fileName + " was deleted";
-            } else {
-                return "The file " + fileName + " not found";
-            }
-        }
-    }
-  learner_created: false
-- name: src/server/Advisor.java
-  visible: true
-  text: |
-    package server;
-
-    import java.util.Scanner;
-
-    public class Advisor {
-
-        public void start() {
-            Scanner scanner = new Scanner(System.in);
-
-
-            while (true) {
-                String[] query = scanner.nextLine().split(" ");
-                switch (query[0]) {
-                    case "add":
-                        PrintService.print(Service.addFile(query[1]));
-                        break;
-                    case "get":
-                        PrintService.print(Service.getFile(query[1]));
-                        break;
-                    case "delete":
-                        PrintService.print(Service.delFile(query[1]));
-                        break;
-                    case "exit":
-                        System.exit(0);
-                    default:
-                        // throw new NumberFormatException("Invalid random type");
-                        System.out.println("Cannot Execute The Query");
-                }
-                //query = scanner.nextLine().split(" ");
-            }
-
-        }
-    }
-  learner_created: false
-- name: src/server/PrintService.java
-  visible: true
-  text: |
-    package server;
-
-    public class PrintService {
-        public static void print(String _data){
-
-            System.out.println(_data);
-
-        }
-    }
-  learner_created: false
-- name: src/server/Service.java
-  visible: true
-  text: |
-    package server;
-
-    public class Service {
-        /**
-         * Adding files ./files/
-         * @return - String, formatted output data
-         * @param fileName, Name of the file to add
-         */
-        public static String addFile(String fileName) {
-            return Executor.addFile(fileName);
-        }
-
-        /**
-         * get files ./files/
-         * @return - String, formatted output data
-         * @param fileName, name of the file we'll get
-         */
-        public static String getFile(String fileName) {
-            return Executor.getFile(fileName);
-        }
-
-        /**
-         * Deleting files ./files/
-         * @param fileName, name of the file to delete
-         * @return String, formatted output data
-         */
-        public static String delFile(String fileName){
-            return Executor.delFile(fileName);
-        }
-    }
-  learner_created: false
 - name: test/FileServerTest.java
   visible: false
   text: |+
@@ -423,6 +239,181 @@ files:
     }
 
   learner_created: false
+- name: src/client/InputHandler.java
+  visible: true
+  text: |
+    package client;
+
+    import java.util.HashSet;
+    import java.util.Scanner;
+    import java.util.Set;
+
+    public class InputHandler {
+        private final Scanner scanner;
+        private final Set<String> files = new HashSet<>();
+
+        public InputHandler(Scanner scanner) {
+            this.scanner = scanner;
+        }
+
+        public void process() {
+            while (true) {
+                String input = scanner.nextLine();
+                if ("exit".equals(input)) {
+                    return;
+                }
+                String[] commandLine = input.split(" ");
+                String command = commandLine[0];
+                String fileName = commandLine[1];
+                switch (command) {
+                    case "add":
+                        boolean isAdded = false;
+                        if (isCorrectFile(fileName)) {
+                            isAdded = files.add(fileName);
+                        }
+
+                        if (isAdded) {
+                            System.out.printf("The file %s added successfully%n", fileName);
+                        } else {
+                            System.out.printf("Cannot add the file %s%n", fileName);
+                        }
+                        break;
+                    case "get":
+                        String file = getFile(fileName);
+                        if (file != null) {
+                            System.out.printf("The file %s was sent%n", fileName);
+                        } else {
+                            System.out.printf("The file %s not found%n", fileName);
+                        }
+                        break;
+                    case "delete":
+                        if (files.remove(fileName)) {
+                            System.out.printf("The file %s was deleted%n", fileName);
+                        } else {
+                            System.out.printf("The file %s not found%n", fileName);
+                        }
+                        break;
+                    default:
+                        throw new IllegalArgumentException(command + " command is not supported");
+                }
+            }
+        }
+
+        private String getFile(String fileName) {
+            return files.stream()
+                    .filter(it -> it.equals(fileName))
+                    .findFirst()
+                    .orElse(null);
+        }
+
+        private boolean isCorrectFile(String fileName) {
+            for (int i = 1; i < 11; i++) {
+                String file = "file" + i;
+                if (file.equals(fileName)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+    }
+  learner_created: true
+- name: src/client/MyClientSocket.java
+  visible: true
+  text: |
+    package client;
+
+    import java.io.DataInputStream;
+    import java.io.DataOutputStream;
+    import java.io.IOException;
+    import java.net.InetAddress;
+    import java.net.Socket;
+
+    public class MyClientSocket {
+        private final String address;
+        private final int port;
+
+        public MyClientSocket(String address, int port) {
+            this.address = address;
+            this.port = port;
+        }
+
+        public void start() throws IOException {
+            try (
+                    Socket socket = new Socket(InetAddress.getByName(address), port);
+                    DataInputStream input = new DataInputStream(socket.getInputStream());
+                    DataOutputStream output = new DataOutputStream(socket.getOutputStream())
+            ) {
+                System.out.println("Client started!");
+
+                String message = "Give me everything you have!";
+                output.writeUTF(message); // sending message to the server
+                System.out.println("Sent: " + message);
+
+    //            String receivedMessage = new String(input.readAllBytes(), StandardCharsets.UTF_8); // response message
+                String receivedMessage = input.readUTF(); // response message
+                System.out.println("Received: " + receivedMessage);
+            }
+        }
+    }
+  learner_created: true
+- name: src/client/Main.java
+  visible: true
+  text: |
+    package client;
+
+    import java.io.IOException;
+
+    public class Main {
+        private static final String ADDRESS = "127.0.0.1";
+        private static final int PORT = 23456;
+
+        public static void main(String[] args) throws IOException {
+            MyClientSocket client = new MyClientSocket(ADDRESS, PORT);
+            client.start();
+        }
+    }
+  learner_created: true
+- name: src/server/MyServerSocket.java
+  visible: true
+  text: |
+    package server;
+
+    import java.io.DataInputStream;
+    import java.io.DataOutputStream;
+    import java.io.IOException;
+    import java.net.InetAddress;
+    import java.net.ServerSocket;
+    import java.net.Socket;
+
+    public class MyServerSocket {
+        private final String address;
+        private final int port;
+
+        public MyServerSocket(String address, int port) {
+            this.address = address;
+            this.port = port;
+        }
+
+        public void start() throws IOException {
+            try (ServerSocket server = new ServerSocket(port, 50, InetAddress.getByName(address))) {
+                System.out.println("Server started!");
+                try (
+                        Socket socket = server.accept(); // accepting a new client
+                        DataInputStream input = new DataInputStream(socket.getInputStream());
+                        DataOutputStream output = new DataOutputStream(socket.getOutputStream())
+                ) {
+                    String command = input.readUTF(); // reading a message
+                    System.out.println("Received: " + command);
+
+                    String message = "All files were sent!";
+                    output.writeUTF(message); // resend it to the client
+                    System.out.println("Sent: " + message);
+                }
+
+            }
+        }
+    }
+  learner_created: true
 feedback_link: https://hyperskill.org/learn/step/5427#comment
 status: Unchecked
 record: -1

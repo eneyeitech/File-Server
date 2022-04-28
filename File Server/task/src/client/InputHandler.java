@@ -1,4 +1,4 @@
-package server;
+package client;
 
 import java.util.HashSet;
 import java.util.Scanner;

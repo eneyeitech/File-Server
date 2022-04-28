@@ -1,281 +1,222 @@
+import org.hyperskill.hstest.exception.outcomes.WrongAnswer;
 import org.hyperskill.hstest.stage.StageTest;
 import org.hyperskill.hstest.testcase.CheckResult;
 import org.hyperskill.hstest.testcase.TestCase;
+import org.hyperskill.hstest.testing.TestedProgram;
+import org.junit.AfterClass;
 
-import java.util.Arrays;
-import java.util.LinkedHashMap;
-import java.util.ArrayList;
-import java.util.List;
+import java.io.File;
+import java.io.IOException;
+import java.net.ConnectException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.util.*;
 
+public class FileServerTest extends StageTest<String> {
 
-class Clue {
-    public String output;
-    public String feedback;
+    private static final String onConnectExceptionMessage = "A client can't connect to the server!\n" +
+        "Make sure the server handles connections and doesn't stop after one client connected.";
+    private static final String filesPath = System.getProperty("user.dir") +
+        File.separator + "src" + File.separator + "server" + File.separator + "data" + File.separator;
 
-    public Clue(String output, String feedback) {
-        this.feedback = feedback;
-        this.output = output;
+    private static final Map<String, String> savedFiles = new HashMap<>();
+
+    @Override
+    public List<TestCase<String>> generate() {
+        return Collections.singletonList(
+            new TestCase<String>()
+                .feedbackOnException(ConnectException.class, onConnectExceptionMessage)
+                .setDynamicTesting(this::test)
+        );
+    }
+
+    CheckResult test() {
+
+        testStopServer();
+
+        TestedProgram client;
+        TestedProgram server = new TestedProgram("server");
+        String fileName;
+        String fileContent;
+
+        if (!Files.exists(Paths.get(filesPath)) || !Files.isDirectory(Paths.get(filesPath))) {
+            return CheckResult.wrong("Can't find '/server/data' folder. You should store all saved files in it!\n" +
+                "The folder should be created even if the server wasn't started!");
+        }
+
+        // Delete files in case the previous test was failed with exception
+        deleteTestFiles();
+        server.startInBackground();
+
+        // Test #1 Saving a file on the server
+        client = getClient();
+        client.start();
+        fileName = FileNameGenerator.name();
+        fileContent = FileNameGenerator.content();
+        savedFiles.put(fileName, fileContent);
+        client.execute(String.format("2\n%s\n%s", fileName, fileContent));
+
+        if (!isFileExists(fileName)) {
+            return CheckResult.wrong("Can't find just saved file in the /server/data folder!");
+        }
+
+        String savedFileContent = getFileContent(fileName);
+        if (!savedFileContent.equals(savedFiles.get(fileName))) {
+            return CheckResult.wrong("A file after saving has wrong content!");
+        }
+
+        // Test #2 Saving a fail that already exists
+        client = getClient();
+        client.start();
+        String output = client.execute(String.format("2\n%s\n%s", fileName, fileContent));
+
+        if (!output.contains("The response says that creating the file was forbidden!")) {
+            return CheckResult.wrong("You should print 'The response says that creating the file was forbidden!' " +
+                "if a client tries to add file that already exist!");
+        }
+
+        // Test #3 Getting a file
+        client = getClient();
+        client.start();
+        output = client.execute(String.format("1\n%s", fileName));
+
+        if (!output.contains("The content of the file is")) {
+            return CheckResult.wrong("When a client tries to get a file that is stored on the server" +
+                " you should print:\n\"The content of the file is: FILE_CONTENT\"\nwhere FILE_CONTENT is a " +
+                "content of the requested file!");
+        }
+
+        if (!output.contains(fileContent)) {
+            return CheckResult.wrong("The server returned wrong content of the file!");
+        }
+
+        // Test #4 Getting a not existing file
+        client = getClient();
+        client.start();
+        fileName = FileNameGenerator.name();
+        output = client.execute(String.format("1\n%s", fileName));
+
+        if (!output.contains("The response says that the file was not found!")) {
+            return CheckResult.wrong("You should print \"The response says that the file was not found!\" if a" +
+                " client tries to request a file that doesn't exist");
+        }
+
+        // Test #5 Deleting a file that doesn't exist
+        client = getClient();
+        client.start();
+        fileName = FileNameGenerator.name();
+        output = client.execute(String.format("3\n%s", fileName));
+
+        if (!output.contains("The response says that the file was not found!")) {
+            return CheckResult.wrong("You should print \"The response says that the file was not found!\" if a" +
+                " client tries to delete a file that doesn't exist");
+        }
+
+        // Test #6 Deleting a file
+        client = getClient();
+        client.start();
+
+        fileName = savedFiles.keySet().stream().findFirst().get();
+        client.execute(String.format("3\n%s", fileName));
+
+        if (isFileExists(fileName)) {
+            return CheckResult.wrong("You should delete a file from /server/data folder if the user requests it!");
+        }
+
+        // Stop server
+        client = getClient();
+        client.start();
+        client.execute("exit");
+
+        return CheckResult.correct();
+    }
+
+    private static void testStopServer() {
+        TestedProgram server = new TestedProgram("server");
+        TestedProgram client = new TestedProgram("client");
+
+        server.startInBackground();
+        client.start();
+        client.execute("exit");
+
+        try {
+            Thread.sleep(200);
+        } catch (InterruptedException ignored) {}
+
+        if (!server.isFinished()) {
+            throw new WrongAnswer("The server should stop after a client sends 'exit'!");
+        }
+    }
+
+    private static void deleteTestFiles() {
+        File dir = new File(filesPath);
+        for (File file : Objects.requireNonNull(dir.listFiles())) {
+            if (file.getName().startsWith("test_purpose_")) {
+                boolean isDeleted = file.delete();
+                if (!isDeleted) {
+                    throw new WrongAnswer("Can't delete test files. Maybe they are not closed!");
+                }
+            }
+        }
+    }
+
+    private static boolean isFileExists(String fileName) {
+        String path = filesPath + fileName;
+        return Files.exists(Paths.get(path)) && !Files.isDirectory(Paths.get(path));
+    }
+
+    private static String getFileContent(String fileName) {
+        String path = filesPath + fileName;
+        try {
+            return new String(Files.readAllBytes(Paths.get(path))).trim();
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+        // Calls fatal error
+        throw new RuntimeException("Can't read file!");
+    }
+
+    @AfterClass
+    public static void afterTestDeleteFiles() {
+        deleteTestFiles();
+    }
+
+    public static TestedProgram getClient() {
+        return new TestedProgram("client");
     }
 }
 
-public class FileServerTest extends StageTest<Clue> {
+class FileNameGenerator {
 
+    private final static String lexicon = "ABCDEFGHIJKLMNOPQRSTUVWXYZ12345674890";
+    private final static Random rand = new Random();
+    private final static Set<String> identifiers = new HashSet<>();
 
-    @Override
-    public List<TestCase<Clue>> generate() {
-        List<TestCase<Clue>> testCases = new ArrayList<>();
-        LinkedHashMap<String, Clue> inputsWithClues = generateInputsWithClues();
-        inputsWithClues.forEach((input, clue) -> {
-            TestCase<Clue> testCase = new TestCase<>();
-            testCase.setInput(input);
-            testCase.setAttach(clue);
-            testCases.add(testCase);
-        });
-        return testCases;
+    public static String name() {
+        return generate(5, true);
     }
 
-    @Override
-    public CheckResult check(String reply, Clue clue) {
-        String[] linesWoSpaces = Arrays.stream(reply.trim().split("\n"))
-            .map(String::trim).filter(line -> !line.isBlank())
-            .toArray(String[]::new);
-
-        reply = String.join("\n", linesWoSpaces);
-
-        return new CheckResult(reply.equals(clue.output), clue.feedback);
+    public static String content() {
+        return generate(15, false);
     }
 
-    public static LinkedHashMap<String, Clue> generateInputsWithClues() {
-        LinkedHashMap<String, Clue> inputsWithClues = new LinkedHashMap<>();
-        String input, output, feedback;
-        Clue clue;
+    public static String generate(int len, boolean name) {
+        StringBuilder builder = new StringBuilder();
 
-        //Test cases to check add() method
-        //#1
-        output = "The file file1 added successfully";
-        feedback = "Failed to add file1. The answer to command \"add file1\" should be " +
-            "\"The file file1 added successfully\\n\"";
-        input = "add file1\n" +
-            "exit";
-        clue = new Clue(output, feedback);
-        inputsWithClues.put(input, clue);
-
-        //#2
-        output = "The file file2 added successfully";
-        feedback = "Wrong answer on action \"add\"";
-        input = "add file2\n" +
-            "exit";
-        clue = new Clue(output, feedback);
-        inputsWithClues.put(input, clue);
-
-
-        //#3
-        output = "The file file3 added successfully";
-        feedback = "Wrong answer on action \"add\"";
-        input = "add file3\n" +
-            "exit";
-        clue = new Clue(output, feedback);
-        inputsWithClues.put(input, clue);
-
-        //#4
-        output = "The file file4 added successfully";
-        feedback = "Failed to add file4. The answer to command \"add file4\" should be " +
-            "\"The file file4 added successfully\\n\"";
-        input = "add file4\n" +
-            "exit";
-        clue = new Clue(output, feedback);
-        inputsWithClues.put(input, clue);
-
-        //#5
-        output = "The file file5 added successfully";
-        feedback = "Wrong answer on action \"add\"";
-        input = "add file5\n" +
-            "exit";
-        clue = new Clue(output, feedback);
-        inputsWithClues.put(input, clue);
-
-        //#6
-        output = "The file file6 added successfully";
-        feedback = "Wrong answer on action \"add\"";
-        input = "add file6\n" +
-            "exit";
-        clue = new Clue(output, feedback);
-        inputsWithClues.put(input, clue);
-
-        //#7
-        output = "The file file7 added successfully";
-        feedback = "Wrong answer on action \"add\"";
-        input = "add file7\n" +
-            "exit";
-        clue = new Clue(output, feedback);
-        inputsWithClues.put(input, clue);
-
-        //#8
-        output = "The file file8 added successfully";
-        feedback = "Failed to add file8. The answer to command \"add file8\" should be " +
-            "\"The file file8 added successfully\\n\"";
-        input = "add file8\n" +
-            "exit";
-        clue = new Clue(output, feedback);
-        inputsWithClues.put(input, clue);
-
-        //#9
-        output = "The file file9 added successfully";
-        feedback = "Failed to add file9. The answer to command \"add file9\" should be " +
-            "\"The file file9 added successfully\\n\"";
-        input = "add file9\n" +
-            "exit";
-        clue = new Clue(output, feedback);
-        inputsWithClues.put(input, clue);
-
-        //#10
-        output = "The file file10 added successfully";
-        feedback = "Wrong answer on action \"add\"";
-        input = "add file10\n" +
-            "exit";
-        clue = new Clue(output, feedback);
-        inputsWithClues.put(input, clue);
-
-        //Testing wrong names to add
-        //#11
-        output = "Cannot add the file fileWrong";
-        feedback = "Wrong answer on action \"add\"";
-        input = "add fileWrong\n" +
-            "exit";
-        clue = new Clue(output, feedback);
-        inputsWithClues.put(input, clue);
-
-        //#12
-        output = "Cannot add the file file11";
-        feedback = "Incorrect reaction to add file11. The answer to command \"add file11\" should be " +
-            "\"Cannot add the file file11\\n\", as only filenames file1, file2..file10 are allowed at this stage.";
-        input = "add file11\n" +
-            "exit";
-        clue = new Clue(output, feedback);
-        inputsWithClues.put(input, clue);
-
-        //#13
-        output = "The file file1 added successfully\n" +
-            "Cannot add the file file1";
-        feedback = "Incorrect reaction to attempt of adding existing file. The answer to second command \"add file1\" should be " +
-            "\"Cannot add the file file1\\n\", as only one file of such name could be added";
-        input = "add file1\n" +
-            "add file1\n" +
-            "exit";
-        clue = new Clue(output, feedback);
-        inputsWithClues.put(input, clue);
-
-        //Test cases to check get() method
-        //#14
-        output = "The file file1 not found";
-        feedback = "Incorrect reaction to get file1. The answer to command \"get file1\" should be " +
-            "\"The file file1 not found\\n\", if it was not added.";
-        input = "get file1\n" +
-            "exit";
-        clue = new Clue(output, feedback);
-        inputsWithClues.put(input, clue);
-
-        //#15
-        output = "The file file2 not found";
-        feedback = "Wrong answer on action \"get\"";
-        input = "get file2\n" +
-            "exit";
-        clue = new Clue(output, feedback);
-        inputsWithClues.put(input, clue);
-
-        //#16
-        output = "The file file1 added successfully\n" +
-            "The file file1 was sent";
-        feedback = "Wrong answer on action \"get\"";
-        input = "add file1\n" +
-            "get file1\n" +
-            "exit";
-        clue = new Clue(output, feedback);
-        inputsWithClues.put(input, clue);
-
-        //#17
-        output = "The file file2 added successfully\n" +
-            "The file file2 was sent";
-        feedback = "Wrong answer on action \"get\"";
-        input = "add file2\n" +
-            "get file2\n" +
-            "exit";
-        clue = new Clue(output, feedback);
-        inputsWithClues.put(input, clue);
-
-        //Test cases to check delete() method
-        //#18
-        output = "The file file1 not found";
-        feedback = "Incorrect reaction to delete file1. The answer to command \"delete file1\" should be " +
-            "\"The file file1 not found\\n\", if it was not added.";
-        input = "delete file1\n" +
-            "exit";
-        clue = new Clue(output, feedback);
-        inputsWithClues.put(input, clue);
-
-        //#19
-        output = "The file file3 not found";
-        feedback = "Wrong answer on action \"delete\"";
-        input = "delete file3\n" +
-            "exit";
-        clue = new Clue(output, feedback);
-        inputsWithClues.put(input, clue);
-
-        //#20
-        output = "The file file1 added successfully\n" +
-            "The file file1 was deleted";
-        feedback = "Wrong answer on action \"delete\"";
-        input = "add file1\n" +
-            "delete file1\n" +
-            "exit";
-        clue = new Clue(output, feedback);
-        inputsWithClues.put(input, clue);
-
-        //#21
-        output = "The file file4 added successfully\n" +
-            "The file file4 was deleted";
-        feedback = "Incorrect reaction to delete file4. The answer to command \"delete file4\" should be " +
-            "\"The file file4 was deleted\\n\", if it was added before.";
-        input = "add file4\n" +
-            "delete file4\n" +
-            "exit";
-        clue = new Clue(output, feedback);
-        inputsWithClues.put(input, clue);
-
-        //#22
-        output = "The file file1 added successfully\n" +
-            "The file file1 was deleted\n" +
-            "The file file1 not found";
-        feedback = "Incorrect reaction to delete file1. The answer to command \"delete file1\" should be " +
-            "\"The file file1 not found\", if it was deleted before.";
-        input = "add file1\n" +
-            "delete file1\n" +
-            "get file1\n" +
-            "exit";
-        clue = new Clue(output, feedback);
-        inputsWithClues.put(input, clue);
-
-        //#23
-        output = "The file file1 added successfully\n" +
-            "The file file1 was deleted\n" +
-            "The file file1 added successfully";
-        feedback = "Wrong answer on action \"delete\"";
-        input = "add file1\n" +
-            "delete file1\n" +
-            "add file1\n" +
-            "exit";
-        clue = new Clue(output, feedback);
-        inputsWithClues.put(input, clue);
-
-        //Test case to check exit()
-        //#24
-        output = "";
-        feedback = "Incorrect reaction to exit. The reaction to command \"exit\" should be " +
-            "the end of the Server execution.";
-        input = "exit";
-        clue = new Clue(output, feedback);
-        inputsWithClues.put(input, clue);
-
-        return inputsWithClues;
+        while (builder.toString().length() == 0) {
+            if (name) builder.append("test_purpose_");
+            int length = rand.nextInt(len) + 5;
+            for (int i = 0; i < length; i++) {
+                builder.append(lexicon.charAt(rand.nextInt(lexicon.length())));
+            }
+            if (identifiers.contains(builder.toString())) {
+                builder = new StringBuilder();
+            } else {
+                identifiers.add(builder.toString());
+            }
+        }
+        if (name) builder.append(".txt");
+        return builder.toString();
     }
 }
+
