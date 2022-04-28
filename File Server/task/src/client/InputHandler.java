@@ -1,74 +1,84 @@
 package client;
 
-import java.util.HashSet;
+import java.io.IOException;
 import java.util.Scanner;
-import java.util.Set;
 
 public class InputHandler {
+    private static final String ADDRESS = "127.0.0.1";
+    private static final int PORT = 23456;
+
     private final Scanner scanner;
-    private final Set<String> files = new HashSet<>();
 
     public InputHandler(Scanner scanner) {
         this.scanner = scanner;
     }
 
-    public void process() {
-        while (true) {
-            String input = scanner.nextLine();
-            if ("exit".equals(input)) {
-                return;
-            }
-            String[] commandLine = input.split(" ");
-            String command = commandLine[0];
-            String fileName = commandLine[1];
-            switch (command) {
-                case "add":
-                    boolean isAdded = false;
-                    if (isCorrectFile(fileName)) {
-                        isAdded = files.add(fileName);
-                    }
+    public void process() throws IOException {
+        MyClientSocket client = new MyClientSocket(ADDRESS, PORT);
+        System.out.println("Client started!");
 
-                    if (isAdded) {
-                        System.out.printf("The file %s added successfully%n", fileName);
-                    } else {
-                        System.out.printf("Cannot add the file %s%n", fileName);
-                    }
-                    break;
-                case "get":
-                    String file = getFile(fileName);
-                    if (file != null) {
-                        System.out.printf("The file %s was sent%n", fileName);
-                    } else {
-                        System.out.printf("The file %s not found%n", fileName);
-                    }
-                    break;
-                case "delete":
-                    if (files.remove(fileName)) {
-                        System.out.printf("The file %s was deleted%n", fileName);
-                    } else {
-                        System.out.printf("The file %s not found%n", fileName);
-                    }
-                    break;
-                default:
-                    throw new IllegalArgumentException(command + " command is not supported");
-            }
+        System.out.println("Enter action (1 - get a file, 2 - create a file, 3 - delete a file):");
+        String action = scanner.nextLine();
+        if ("exit".equals(action)) {
+            System.out.println("The request was sent.");
+            client.sendRequest("exit");
+            return;
+        }
+        System.out.println("Enter filename:");
+        String fileName = scanner.nextLine();
+        switch (action) {
+            case "1":
+                processGetRequest(client, fileName);
+                break;
+            case "2":
+                processPutRequest(client, fileName);
+                break;
+            case "3":
+                processDeleteRequest(client, fileName);
+                break;
+            default:
+                throw new IllegalArgumentException(action + " action is not supported");
         }
     }
 
-    private String getFile(String fileName) {
-        return files.stream()
-                .filter(it -> it.equals(fileName))
-                .findFirst()
-                .orElse(null);
+    private void processGetRequest(MyClientSocket client, String fileName) throws IOException {
+        String request = String.format("GET %s", fileName);
+        String response = client.sendRequest(request);
+        System.out.println("The request was sent.");
+
+        int code = Integer.parseInt(response.substring(0, 3));
+        if (code == 200) {
+            System.out.printf("The content of the file is: %s%n", response.substring(4));
+        } else if (code == 404) {
+            System.out.println("The response says that the file was not found!");
+        }
     }
 
-    private boolean isCorrectFile(String fileName) {
-        for (int i = 1; i < 11; i++) {
-            String file = "file" + i;
-            if (file.equals(fileName)) {
-                return true;
-            }
+    private void processPutRequest(MyClientSocket client, String fileName) throws IOException {
+        System.out.println("Enter file content:");
+        String fileContent = scanner.nextLine();
+        String request = String.format("PUT %s %s", fileName, fileContent);
+        String response = client.sendRequest(request);
+        System.out.println("The request was sent.");
+
+        int code = Integer.parseInt(response);
+        if (code == 200) {
+            System.out.println("The response says that file was created!");
+        } else if (code == 403) {
+            System.out.println("The response says that creating the file was forbidden!");
         }
-        return false;
+    }
+
+    private void processDeleteRequest(MyClientSocket client, String fileName) throws IOException {
+        String request = String.format("DELETE %s", fileName);
+        String response = client.sendRequest(request);
+        System.out.println("The request was sent.");
+
+        int code = Integer.parseInt(response);
+        if (code == 200) {
+            System.out.println("The response says that the file was successfully deleted!");
+        } else if (code == 404) {
+            System.out.println("The response says that the file was not found!");
+        }
     }
 }
